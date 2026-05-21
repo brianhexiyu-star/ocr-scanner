@@ -181,6 +181,8 @@ class MainWindow(QMainWindow):
         try:
             image = capture_screen()
             self._screenshot = image
+            self._selection = None
+            self._annotated_image = None
             pixmap = pil_to_pixmap(image)
             self.canvas.set_image(pixmap)
             self._set_state(AppState.SELECTING)
@@ -208,6 +210,10 @@ class MainWindow(QMainWindow):
         """Handle OCR button click."""
         if self._selection is None or self._screenshot is None:
             return
+
+        # Terminate any running worker before starting a new one
+        if self.worker.isRunning():
+            self.worker.wait()
 
         self._set_state(AppState.PROCESSING)
 
@@ -271,5 +277,6 @@ class MainWindow(QMainWindow):
 
 def pil_to_pixmap(pil_image: Image.Image) -> QPixmap:
     """Convert a PIL Image to a QPixmap."""
-    qimage = ImageQt(pil_image)
+    # Convert to RGBA to avoid ImageQt stride/pitch corruption on RGB images
+    qimage = ImageQt(pil_image.convert("RGBA"))
     return QPixmap.fromImage(qimage)
