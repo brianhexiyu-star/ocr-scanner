@@ -13,6 +13,7 @@ from ocr_scanner.core.ocr import (
     TextBlock,
     draw_ocr_boxes,
     extract_text,
+    extract_text_simple,
     validate_tesseract,
 )
 
@@ -110,6 +111,7 @@ class TestExtractText:
             "top": [0, 10, 20, 30],
             "width": [10, 20, 30, 40],
             "height": [10, 20, 30, 40],
+            "level": [5, 5, 5, 5],
         }
         with patch(
             "ocr_scanner.core.ocr.pytesseract.image_to_data", return_value=mock_data
@@ -131,6 +133,7 @@ class TestExtractText:
             "top": [0, 10, 20],
             "width": [10, 20, 30],
             "height": [10, 20, 30],
+            "level": [5, 5, 5],
         }
         with patch(
             "ocr_scanner.core.ocr.pytesseract.image_to_data", return_value=mock_data
@@ -160,6 +163,7 @@ class TestExtractText:
             "top": [0, 0, 0],
             "width": [0, 0, 0],
             "height": [0, 0, 0],
+            "level": [5, 5, 5],
         }
         with patch(
             "ocr_scanner.core.ocr.pytesseract.image_to_data", return_value=mock_data
@@ -178,6 +182,7 @@ class TestExtractText:
             "top": [10],
             "width": [50],
             "height": [20],
+            "level": [5],
         }
         with patch(
             "ocr_scanner.core.ocr.pytesseract.image_to_data", return_value=mock_data
@@ -188,6 +193,77 @@ class TestExtractText:
         mock_func.assert_called_once_with(
             image, lang="chi_sim", output_type=pytest.importorskip("pytesseract").Output.DICT
         )
+
+    def test_extract_text_filters_non_word_level_entries(self) -> None:
+        """Test that only level 5 (word) entries are returned, not lines/blocks."""
+        mock_data = {
+            "text": ["Page", "Block", "Paragraph", "Hello World", "word"],
+            "conf": [100, 95, 90, 85, 80],
+            "left": [0, 0, 0, 10, 10],
+            "top": [0, 0, 0, 10, 10],
+            "width": [100, 100, 100, 50, 20],
+            "height": [100, 100, 100, 20, 20],
+            "level": [1, 2, 3, 4, 5],  # page, block, paragraph, line, word
+        }
+        with patch(
+            "ocr_scanner.core.ocr.pytesseract.image_to_data", return_value=mock_data
+        ):
+            image = Image.new("RGB", (100, 100), "white")
+            blocks = extract_text(image)
+
+        # Only the level 5 entry ("word") should be returned
+        assert len(blocks) == 1
+        assert blocks[0].text == "word"
+
+
+# --- extract_text_simple() tests ---
+
+
+class TestExtractTextSimple:
+    """Test extract_text_simple() with mocked pytesseract."""
+
+    def test_extract_text_simple_returns_string(self) -> None:
+        """Test that extract_text_simple returns stripped text."""
+        with patch(
+            "ocr_scanner.core.ocr.pytesseract.image_to_string",
+            return_value="Hello World\n\nSecond Line\n",
+        ):
+            image = Image.new("RGB", (100, 100), "white")
+            result = extract_text_simple(image)
+
+        assert result == "Hello World\n\nSecond Line"
+
+    def test_extract_text_simple_empty_result(self) -> None:
+        """Test that empty result returns empty string."""
+        with patch(
+            "ocr_scanner.core.ocr.pytesseract.image_to_string",
+            return_value="",
+        ):
+            image = Image.new("RGB", (100, 100), "white")
+            result = extract_text_simple(image)
+
+        assert result == ""
+
+    def test_extract_text_simple_raises_ocr_error_on_failure(self) -> None:
+        """Test that OCRError is raised when pytesseract fails."""
+        with patch(
+            "ocr_scanner.core.ocr.pytesseract.image_to_string",
+            side_effect=RuntimeError("Tesseract not found"),
+        ):
+            image = Image.new("RGB", (100, 100), "white")
+            with pytest.raises(OCRError, match="OCR processing failed"):
+                extract_text_simple(image)
+
+    def test_extract_text_simple_with_custom_lang(self) -> None:
+        """Test that lang parameter is passed through."""
+        with patch(
+            "ocr_scanner.core.ocr.pytesseract.image_to_string",
+            return_value="Test",
+        ) as mock_func:
+            image = Image.new("RGB", (100, 100), "white")
+            extract_text_simple(image, lang="chi_sim")
+
+        mock_func.assert_called_once_with(image, lang="chi_sim")
 
 
 # --- draw_ocr_boxes() tests ---

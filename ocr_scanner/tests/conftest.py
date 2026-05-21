@@ -34,6 +34,7 @@ def synthetic_ocr_dict() -> dict:
         "top": [10, 10, 0, 50, 60],
         "width": [50, 60, 0, 40, 80],
         "height": [20, 20, 0, 15, 25],
+        "level": [5, 5, 5, 5, 5],  # word level
     }
 
 

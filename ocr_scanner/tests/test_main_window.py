@@ -37,22 +37,26 @@ class TestOCRWorker:
     """Test OCRWorker independently without UI."""
 
     @patch("ocr_scanner.ui.main_window.extract_text")
+    @patch("ocr_scanner.ui.main_window.extract_text_simple")
     @patch("ocr_scanner.ui.main_window.draw_ocr_boxes")
     def test_worker_emits_finished_and_image_ready(
-        self, mock_draw: MagicMock, mock_extract: MagicMock, qtbot
+        self, mock_draw: MagicMock, mock_extract_simple: MagicMock, mock_extract: MagicMock, qtbot
     ) -> None:
         mock_blocks = [TextBlock("Hello", 10, 10, 100, 30, 95.0)]
         mock_extract.return_value = mock_blocks
+        mock_extract_simple.return_value = "Hello World"
         mock_image = Image.new("RGB", (200, 100), "white")
         mock_draw.return_value = mock_image
 
         worker = OCRWorker(Image.new("RGB", (100, 100)))
-        finished_received: list | None = None
+        finished_blocks: list | None = None
+        finished_text: str | None = None
         image_received: Image.Image | None = None
 
-        def on_finished(blocks: list) -> None:
-            nonlocal finished_received
-            finished_received = blocks
+        def on_finished(blocks: list, simple_text: str) -> None:
+            nonlocal finished_blocks, finished_text
+            finished_blocks = blocks
+            finished_text = simple_text
 
         def on_image_ready(image: Image.Image) -> None:
             nonlocal image_received
@@ -64,7 +68,8 @@ class TestOCRWorker:
         with qtbot.waitSignal(worker.image_ready, timeout=5000):
             worker.start()
 
-        assert finished_received == mock_blocks
+        assert finished_blocks == mock_blocks
+        assert finished_text == "Hello World"
         assert image_received == mock_image
 
     @patch("ocr_scanner.ui.main_window.extract_text")
@@ -462,12 +467,14 @@ class TestOnCopy:
     def test_copy_text_to_clipboard(self, qtbot) -> None:
         window = MainWindow()
         qtbot.addWidget(window)
-        window.text_edit.setPlainText("Copied text")
+        window.text_edit.setPlainText("Combined text")
+        window.text_edit_simple.setPlainText("Simple text")
 
         window._on_copy()
 
         clipboard = QApplication.clipboard()
-        assert clipboard.text() == "Copied text"
+        expected = "=== Combined (word-level) ===\nCombined text\n\n=== image_to_string ===\nSimple text"
+        assert clipboard.text() == expected
 
     def test_copy_does_nothing_when_empty(self, qtbot) -> None:
         window = MainWindow()

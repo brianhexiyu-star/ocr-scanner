@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ocr_scanner.core.capture import ScreenCaptureError, capture_screen
-from ocr_scanner.core.ocr import OCRError, TextBlock, draw_ocr_boxes, extract_text
+from ocr_scanner.core.ocr import OCRError, TextBlock, combine_lines, draw_ocr_boxes, extract_text, extract_text_simple
 from ocr_scanner.ui.canvas import Canvas
 
 
@@ -41,7 +41,7 @@ class AppState(Enum):
 class OCRWorker(QThread):
     """Runs OCR in a background thread to avoid freezing the UI."""
 
-    finished = pyqtSignal(list)  # Emits List[TextBlock]
+    finished = pyqtSignal(list, str)  # Emits List[TextBlock], simple_text
     error = pyqtSignal(str)  # Emits error message string
     image_ready = pyqtSignal(object)  # Emits annotated PIL.Image
 
@@ -53,8 +53,9 @@ class OCRWorker(QThread):
     def run(self) -> None:
         try:
             blocks = extract_text(self._image, lang=self._lang)
+            simple_text = extract_text_simple(self._image, lang=self._lang)
             annotated = draw_ocr_boxes(self._image, blocks)
-            self.finished.emit(blocks)
+            self.finished.emit(blocks, simple_text)
             self.image_ready.emit(annotated)
         except OCRError as e:
             self.error.emit(str(e))
@@ -78,6 +79,8 @@ class MainWindow(QMainWindow):
         self.canvas = Canvas()
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
+        self.text_edit_simple = QTextEdit()
+        self.text_edit_simple.setReadOnly(True)
 
         self.capture_btn = QPushButton("Capture")
         self.ocr_btn = QPushButton("OCR")
@@ -104,7 +107,15 @@ class MainWindow(QMainWindow):
 
         # Right: Text panel
         right_layout = QVBoxLayout()
+
+        # Combined text panel
+        right_layout.addWidget(self._label("Combined (word-level)"))
         right_layout.addWidget(self.text_edit, stretch=1)
+
+        # image_to_string panel
+        right_layout.addWidget(self._label("image_to_string"))
+        right_layout.addWidget(self.text_edit_simple, stretch=1)
+
         right_layout.addWidget(self.copy_btn)
         main_layout.addLayout(right_layout, stretch=1)
 
@@ -121,6 +132,17 @@ class MainWindow(QMainWindow):
         assert bar is not None
         self._status_bar = bar
         self._status_bar.showMessage("Ready")
+
+    @staticmethod
+    def _label(text: str) -> QWidget:
+        """Create a bold label widget."""
+        from PyQt6.QtWidgets import QLabel
+
+        label = QLabel(text)
+        font = label.font()
+        font.setBold(True)
+        label.setFont(font)
+        return label
 
     def _set_state(self, state: AppState) -> None:
         """Transition to a new state. Updates button enabled states and status bar."""
@@ -226,10 +248,11 @@ class MainWindow(QMainWindow):
         self.worker.image_ready.connect(self._on_ocr_image_ready)
         self.worker.start()
 
-    def _on_ocr_finished(self, blocks: list[TextBlock]) -> None:
+    def _on_ocr_finished(self, blocks: list[TextBlock], simple_text: str) -> None:
         """Handle OCR completion."""
-        text = "\n".join(block.text for block in blocks)
-        self.text_edit.setPlainText(text)
+        combined = combine_lines(blocks)
+        self.text_edit.setPlainText(combined)
+        self.text_edit_simple.setPlainText(simple_text)
         self._set_state(AppState.RESULT)
 
     def _on_ocr_image_ready(self, image: Image.Image) -> None:
@@ -261,15 +284,18 @@ class MainWindow(QMainWindow):
         """Handle reset button click."""
         self.canvas.clear()
         self.text_edit.clear()
+        self.text_edit_simple.clear()
         self._screenshot = None
         self._selection = None
         self._annotated_image = None
         self._set_state(AppState.IDLE)
 
     def _on_copy(self) -> None:
-        """Copy text from text panel to clipboard."""
-        text = self.text_edit.toPlainText()
-        if text:
+        """Copy text from both panels to clipboard."""
+        combined = self.text_edit.toPlainText()
+        simple = self.text_edit_simple.toPlainText()
+        text = f"=== Combined (word-level) ===\n{combined}\n\n=== image_to_string ===\n{simple}"
+        if text.strip():
             clipboard = QApplication.clipboard()
             assert clipboard is not None
             clipboard.setText(text)
